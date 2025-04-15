@@ -1,0 +1,42 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+go-git-publish
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories (remove the comment below if you wish to check in your dependencies)
+# vendor/
+
+# Go workspace file
+go.work
+
+# Local configuration
+publish.json
+
+# macOS specific files
+.DS_Store
+
+# Editor specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Generated files
+*.pb.go
+*.pb.gw.go
+
+# Temporary directories
+tmp/
+temp/
