@@ -53,11 +53,15 @@ func main() {
 	// Show initial message
 	fmt.Println(cyan("Initializing git-publish..."))
 
+	// Check if remote repository exists early
+	remoteURLs := getAllRemoteURLs()
+	hasRemote := len(remoteURLs) > 0
+
 	config := readConfig()
 
 	// Filter branches that don't exist in the repository
 	fmt.Println("Finding available branches...")
-	config = filterExistingBranches(config)
+	config = filterExistingBranches(config, hasRemote)
 
 	// Check if any branches remain
 	if len(config.BranchTags) == 0 {
@@ -70,11 +74,7 @@ func main() {
 	// Interactive CLI - now includes tag checking within the selection process
 	selectedBranch, tagFormat := selectBranchAndTag(config)
 
-	// Get current branch (to restore later)
-	// currentBranch := getCurrentBranch()
-
-	// Get last tag from the selected branch - this is now done in selectBranchAndTag
-	// But we need it again for the next tag calculation
+	// Get last tag from the selected branch
 	lastTag := getLastTag(selectedBranch, tagFormat)
 
 	// Calculate next tag
@@ -89,11 +89,8 @@ func main() {
 	// Ask for tag
 	tagToCreate := promptForTag(tagFormat, nextTag, lastTag)
 
-	// Get all remote URLs
-	remoteURLs := getAllRemoteURLs()
-
 	// Ask to push to remote if remotes exist
-	if len(remoteURLs) == 0 {
+	if !hasRemote {
 		fmt.Println("No remote repositories found. Skipping push step.")
 
 		// Create tag on branch
@@ -165,14 +162,17 @@ func readConfig() Config {
 }
 
 // filterExistingBranches filters out branches that don't exist in the repository
-func filterExistingBranches(config Config) Config {
+func filterExistingBranches(config Config, hasRemote bool) Config {
 	// Extract branch names first
 	var branchNames []string
 	for _, bt := range config.BranchTags {
 		branchNames = append(branchNames, bt.Branch)
 	}
 
-	fetchRemote(branchNames)
+	// Only fetch if remote exists
+	if hasRemote {
+		fetchRemote()
+	}
 
 	// Get all available branches (local and now fetched remote)
 	availableBranches := getConfiguredBranches(branchNames)
@@ -330,65 +330,70 @@ func selectBranchAndTag(config Config) (string, string) {
 	return selectedBranch, selectedTagFormat
 }
 
-// getCurrentBranch gets the current git branch
-// func getCurrentBranch() string {
-// 	cmd := execCommand("git", "rev-parse", "--abbrev-ref", "HEAD")
-// 	output, err := cmd.Output()
-// 	if err != nil {
-// 		fmt.Printf("Error getting current branch: %v\n", err)
-// 		return ""
-// 	}
-// 	return strings.TrimSpace(string(output))
-// }
-
 // fetchRemote fetches latest information from remote
-func fetchRemote(configBranches []string) {
+func fetchRemote() {
 	// Check if there are any remotes first
-	remotes := getAllRemoteURLs()
-	if len(remotes) == 0 {
-		// No remotes, skip fetch
-		return
-	}
+	// remotes := getAllRemoteURLs()
+	// if len(remotes) == 0 {
+	// 	// No remotes, skip fetch
+	// 	return
+	// }
 
 	// Show progress message
 	fmt.Println("Fetching branch information from remote, please wait...")
 
 	// Use a channel to track progress with timeout
 	done := make(chan bool)
+	errCh := make(chan error)
+
 	go func() {
-		// Fetch only the configured branches using a more efficient approach
-		// Use --no-tags to avoid fetching all tags and only specific branches
-		branchArgs := []string{"fetch", "--no-tags", "origin"}
-		for _, branch := range configBranches {
-			branchArgs = append(branchArgs, branch+":"+branch)
+		// First try a simple fetch to update remote refs
+		// This avoids issues with specific branches
+		cmd := execCommand("git", "fetch", "--no-tags", "origin")
+		err := cmd.Run()
+		if err != nil {
+			// Non-critical error, just log it
+			errCh <- fmt.Errorf("warning: initial fetch failed: %v", err)
 		}
 
-		cmd := execCommand("git", branchArgs...)
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("Warning: Failed to fetch branches from remote: %v\n", err)
-		}
-
-		// Try to fetch tags only if there are any
+		// Now try to fetch tags if there are any
 		if hasAnyTags() {
-			// Fetch only recent tags relevant to these branches using a single command
-			// Use --depth to limit history
 			cmd = execCommand("git", "fetch", "--depth=5", "origin", "refs/tags/*:refs/tags/*")
 			if err := cmd.Run(); err != nil {
-				fmt.Printf("Warning: Failed to fetch tags: %v\n", err)
+				// Non-critical error, just log it
+				errCh <- fmt.Errorf("warning: failed to fetch tags: %v", err)
 			}
 		}
 
+		// Signal we're done
+		close(errCh)
 		done <- true
 	}()
 
 	// Set a timeout to ensure we don't wait forever
+	var fetchErrors []error
+	timeoutReached := false
+
 	select {
 	case <-done:
-		// Fetch completed successfully
-		fmt.Println("Remote information fetched successfully.")
+		// Fetch completed, collect errors if any
+		for err := range errCh {
+			fetchErrors = append(fetchErrors, err)
+		}
 	case <-time.After(5 * time.Second):
 		// Timeout reached, continue anyway
+		timeoutReached = true
 		fmt.Println("Fetch taking longer than expected, continuing...")
+	}
+
+	// Print success message unless timeout occurred
+	if !timeoutReached {
+		fmt.Println("Remote information fetched successfully.")
+	}
+
+	// Print any errors we collected
+	for _, err := range fetchErrors {
+		fmt.Println(err)
 	}
 }
 
