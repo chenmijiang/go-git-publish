@@ -35,7 +35,7 @@ A command-line tool for managing Git tags across multiple branches and pushing t
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/go-git-publish.git
+   git clone https://github.com/chenmijiang/go-git-publish.git
    cd go-git-publish
    ```
 
