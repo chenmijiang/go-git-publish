@@ -332,13 +332,6 @@ func selectBranchAndTag(config Config) (string, string) {
 
 // fetchRemote fetches latest information from remote
 func fetchRemote() {
-	// Check if there are any remotes first
-	// remotes := getAllRemoteURLs()
-	// if len(remotes) == 0 {
-	// 	// No remotes, skip fetch
-	// 	return
-	// }
-
 	// Show progress message
 	fmt.Println("Fetching branch information from remote, please wait...")
 
@@ -365,6 +358,12 @@ func fetchRemote() {
 			}
 		}
 
+		// Additional step to ensure branch synchronization
+		cmd = execCommand("git", "remote", "update", "origin", "--prune")
+		if err := cmd.Run(); err != nil {
+			errCh <- fmt.Errorf("warning: failed to update remote: %v", err)
+		}
+
 		// Signal we're done
 		close(errCh)
 		done <- true
@@ -380,7 +379,7 @@ func fetchRemote() {
 		for err := range errCh {
 			fetchErrors = append(fetchErrors, err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second): // Increased timeout to 15 seconds
 		// Timeout reached, continue anyway
 		timeoutReached = true
 		fmt.Println("Fetch taking longer than expected, continuing...")
